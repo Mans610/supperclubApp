@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - main        # triggers when you push to main branch
+permissions:           # ← ADD THIS BLOCK
+  contents: write      # ← needed to create releases
+
 
 jobs:
   build:
