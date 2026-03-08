@@ -1,0 +1,84 @@
+name: Build & Release APK
+
+on:
+  push:
+    branches:
+      - main        # triggers when you push to main branch
+
+jobs:
+  build:
+    name: Build APK
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. Checkout your code
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 2. Setup Java (required for Android build)
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      # 3. Setup Flutter
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ' 3.35.4'   # ← change to your Flutter version
+          channel: 'stable'
+
+      # 4. Get dependencies
+      - name: Get Flutter packages
+        run: flutter pub get
+
+      # 5. Build release APK
+      - name: Build APK
+        run: flutter build apk --release
+
+      # 6. Get version from pubspec.yaml automatically
+      - name: Get version
+        id: get_version
+        run: |
+          VERSION=$(grep '^version:' pubspec.yaml | sed 's/version: //' | sed 's/+.*//' | tr -d ' ')
+          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+          echo "Tag will be: v$VERSION"
+
+      # 7. Upload APK to GitHub Releases (free storage)
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.get_version.outputs.VERSION }}
+          name: Release v${{ steps.get_version.outputs.VERSION }}
+          files: build/app/outputs/flutter-apk/app-release.apk
+          body: |
+            ## What's new in v${{ steps.get_version.outputs.VERSION }}
+            Auto-built from latest push.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # 8. Update version.json so app knows latest version
+      - name: Update version.json
+        run: |
+          VERSION=${{ steps.get_version.outputs.VERSION }}
+          REPO="${{ github.repository }}"
+          APK_URL="https://github.com/$REPO/releases/download/v$VERSION/app-release.apk"
+          
+          echo '{
+            "latest_version": "'$VERSION'",
+            "apk_url": "'$APK_URL'",
+            "force_update": false,
+            "release_notes": "New update available. Please update for best experience."
+          }' > version.json
+
+      # 9. Commit version.json back to repo
+      - name: Commit version.json
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add version.json
+          git diff --staged --quiet || git commit -m "chore: update version.json to v${{ steps.get_version.outputs.VERSION }}"
+          git push
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
